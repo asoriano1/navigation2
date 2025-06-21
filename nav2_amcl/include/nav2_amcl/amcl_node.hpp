@@ -343,6 +343,10 @@ protected:
    */
   void sendMapToOdomTransform(const tf2::TimePoint & transform_expiration);
   /*
+   * @brief Validation of Intensity Map
+   */
+  bool validateIntensityMap(const nav_msgs::msg::OccupancyGrid & intensity_map);
+  /*
    * @brief Handle a new pose estimate callback
    */
   void handleInitialPose(geometry_msgs::msg::PoseWithCovarianceStamped & msg);

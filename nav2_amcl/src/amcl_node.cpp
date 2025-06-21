@@ -1397,7 +1397,10 @@ AmclNode::mapReceived(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
 void
 AmclNode::intensityMapReceived(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
 {
-  (void)msg;
+  if (!validateIntensityMap(*msg)) {
+    RCLCPP_WARN(get_logger(), "The intensity map is not valid. Ignoring...");
+    return;
+  }
   RCLCPP_INFO(get_logger(), "Intensity map received!");
   // Aquí puedes llamar a un método específico, como:
   // handleIntensityMapMessage(*msg);
@@ -1486,6 +1489,44 @@ AmclNode::convertMap(const nav_msgs::msg::OccupancyGrid & map_msg)
 
   return map;
 }
+
+bool
+AmclNode::validateIntensityMap(const nav_msgs::msg::OccupancyGrid & intensity_map)
+{
+  if (!map_) {
+    RCLCPP_WARN(get_logger(),
+      "Occupancy map has not been received yet. Cannot validate intensity map.");
+    return false;
+  }
+
+  if (static_cast<unsigned int>(map_->size_x) != intensity_map.info.width ||
+      static_cast<unsigned int>(map_->size_y) != intensity_map.info.height) {
+    RCLCPP_ERROR(get_logger(),
+      "Intensity map dimensions do not match occupancy map.");
+    return false;
+  }
+
+  if (map_->scale != intensity_map.info.resolution) {
+    RCLCPP_ERROR(get_logger(),
+      "Intensity map resolution does not match occupancy map.");
+    return false;
+  }
+
+  double occ_origin_x = map_->origin_x;
+  double occ_origin_y = map_->origin_y;
+
+  if (occ_origin_x != intensity_map.info.origin.position.x ||
+      occ_origin_y != intensity_map.info.origin.position.y ||
+      intensity_map.info.origin.orientation.z != 0.0 ||
+      intensity_map.info.origin.orientation.w != 1.0) {
+    RCLCPP_ERROR(get_logger(),
+      "Intensity map origin does not match occupancy map origin.");
+    return false;
+  }
+
+  return true;
+}
+
 
 void
 AmclNode::initTransforms()
