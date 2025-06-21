@@ -127,6 +127,11 @@ protected:
    */
   void mapReceived(const nav_msgs::msg::OccupancyGrid::SharedPtr msg);
   /*
+   * @brief Get new intensity map from ROS topic to localize in
+   * @param msg Map message
+   */
+  void intensityMapReceived(const nav_msgs::msg::OccupancyGrid::SharedPtr msg);
+  /*
    * @brief Handle a new map message
    * @param msg Map message
    */
@@ -151,6 +156,7 @@ protected:
   amcl_hyp_t * initial_pose_hyp_;
   std::recursive_mutex mutex_;
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::ConstSharedPtr map_sub_;
+  rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::ConstSharedPtr intensity_map_sub_;
 #if NEW_UNIFORM_SAMPLING
   static std::vector<std::pair<int, int>> free_space_indices;
 #endif
@@ -391,6 +397,8 @@ protected:
   double z_rand_;
   std::string scan_topic_{"scan"};
   std::string map_topic_{"map"};
+  bool use_intensity_map_{false};
+  std::string intensity_map_topic_{"intensity_map"};
 };
 
 }  // namespace nav2_amcl

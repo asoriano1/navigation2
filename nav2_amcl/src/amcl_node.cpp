@@ -1090,6 +1090,9 @@ AmclNode::initParameters()
   get_parameter("always_reset_initial_pose", always_reset_initial_pose_);
   get_parameter("scan_topic", scan_topic_);
   get_parameter("map_topic", map_topic_);
+  get_parameter("use_intensity_map", use_intensity_map_);
+  get_parameter("intensity_map_topic", intensity_map_topic_);
+
 
   save_pose_period_ = tf2::durationFromSec(1.0 / save_pose_rate);
   transform_tolerance_ = tf2::durationFromSec(tmp_tol);
@@ -1392,6 +1395,15 @@ AmclNode::mapReceived(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
 }
 
 void
+AmclNode::intensityMapReceived(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
+{
+  (void)msg;
+  RCLCPP_INFO(get_logger(), "Intensity map received!");
+  // Aquí puedes llamar a un método específico, como:
+  // handleIntensityMapMessage(*msg);
+}
+
+void
 AmclNode::handleMapMessage(const nav_msgs::msg::OccupancyGrid & msg)
 {
   std::lock_guard<std::recursive_mutex> cfl(mutex_);
@@ -1539,6 +1551,15 @@ AmclNode::initPubSub()
     std::bind(&AmclNode::mapReceived, this, std::placeholders::_1));
 
   RCLCPP_INFO(get_logger(), "Subscribed to map topic.");
+
+  if (use_intensity_map_) {
+    intensity_map_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
+      intensity_map_topic_,
+      rclcpp::QoS{1}.transient_local().reliable(),
+      std::bind(&AmclNode::intensityMapReceived, this, std::placeholders::_1));
+    RCLCPP_INFO(get_logger(), "Subscribed to intensity map topic '%s'", intensity_map_topic_.c_str());
+  }
+
 }
 
 void
