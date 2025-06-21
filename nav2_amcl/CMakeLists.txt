@@ -17,6 +17,8 @@ find_package(tf2 REQUIRED)
 find_package(nav2_util REQUIRED)
 find_package(nav2_msgs REQUIRED)
 find_package(pluginlib REQUIRED)
+find_package(ament_cmake_gtest REQUIRED)
+
 
 nav2_package()
 
@@ -101,10 +103,26 @@ install(DIRECTORY include/
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
-  # the following line skips the linter which checks for copyrights
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_intensity_map_validation
+    test/test_intensity_map_validation.cpp
+  )
+
+  target_link_libraries(test_intensity_map_validation
+    ${library_name}
+    pf_lib
+    map_lib
+    sensors_lib
+  )
+
+  ament_target_dependencies(test_intensity_map_validation
+    rclcpp
+    nav_msgs
+  )
 endif()
 
 ament_export_include_directories(include)

@@ -1494,20 +1494,24 @@ bool
 AmclNode::validateIntensityMap(const nav_msgs::msg::OccupancyGrid & intensity_map)
 {
   if (!map_) {
-    RCLCPP_WARN(get_logger(),
+    RCLCPP_WARN(
+      get_logger(),
       "Occupancy map has not been received yet. Cannot validate intensity map.");
     return false;
   }
 
   if (static_cast<unsigned int>(map_->size_x) != intensity_map.info.width ||
-      static_cast<unsigned int>(map_->size_y) != intensity_map.info.height) {
-    RCLCPP_ERROR(get_logger(),
+    static_cast<unsigned int>(map_->size_y) != intensity_map.info.height)
+  {
+    RCLCPP_ERROR(
+      get_logger(),
       "Intensity map dimensions do not match occupancy map.");
     return false;
   }
 
-  if (map_->scale != intensity_map.info.resolution) {
-    RCLCPP_ERROR(get_logger(),
+  if (std::fabs(map_->scale - intensity_map.info.resolution) > 1e-6) {
+    RCLCPP_ERROR(
+      get_logger(),
       "Intensity map resolution does not match occupancy map.");
     return false;
   }
@@ -1516,10 +1520,12 @@ AmclNode::validateIntensityMap(const nav_msgs::msg::OccupancyGrid & intensity_ma
   double occ_origin_y = map_->origin_y;
 
   if (occ_origin_x != intensity_map.info.origin.position.x ||
-      occ_origin_y != intensity_map.info.origin.position.y ||
-      intensity_map.info.origin.orientation.z != 0.0 ||
-      intensity_map.info.origin.orientation.w != 1.0) {
-    RCLCPP_ERROR(get_logger(),
+    occ_origin_y != intensity_map.info.origin.position.y ||
+    intensity_map.info.origin.orientation.z != 0.0 ||
+    intensity_map.info.origin.orientation.w != 1.0)
+  {
+    RCLCPP_ERROR(
+      get_logger(),
       "Intensity map origin does not match occupancy map origin.");
     return false;
   }
@@ -1598,7 +1604,9 @@ AmclNode::initPubSub()
       intensity_map_topic_,
       rclcpp::QoS{1}.transient_local().reliable(),
       std::bind(&AmclNode::intensityMapReceived, this, std::placeholders::_1));
-    RCLCPP_INFO(get_logger(), "Subscribed to intensity map topic '%s'", intensity_map_topic_.c_str());
+    RCLCPP_INFO(
+      get_logger(), "Subscribed to intensity map topic '%s'",
+      intensity_map_topic_.c_str());
   }
 
 }
