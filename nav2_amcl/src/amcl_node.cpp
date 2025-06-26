@@ -121,6 +121,11 @@ AmclNode::AmclNode(const rclcpp::NodeOptions & options)
     "Same as likelihood_field but incorporates the beamskip feature, if enabled");
 
   add_parameter(
+    "intensity_model_type", rclcpp::ParameterValue(std::string("likelihood_field")),
+    "Which model to use",
+    "Only likelihood_field is implemented");
+
+  add_parameter(
     "set_initial_pose", rclcpp::ParameterValue(false),
     "Causes AMCL to set initial pose from the initial_pose* parameters instead of "
     "waiting for the initial_pose message");
@@ -227,6 +232,25 @@ AmclNode::AmclNode(const rclcpp::NodeOptions & options)
   add_parameter(
     "first_map_only", rclcpp::ParameterValue(false),
     "Set this to true, when you want to load a new map published from the map_server");
+
+  add_parameter(
+    "use_intensity_map", rclcpp::ParameterValue(false),
+    "Set this to true, when you want to activate the intensity map suscription");
+
+  add_parameter(
+    "sigma_intensity", rclcpp::ParameterValue(
+      25.0),
+    "sigma_intensity: Standard deviation of the Gaussian used in the intensity likelihood field model."
+    "It determines how tolerant the filter is to differences between measured and expected intensity values."
+    "Units: intensity levels (typically 0-255). Tune this parameter depending on your sensor noise and environment.");
+
+  add_parameter(
+    "lambda_intensity", rclcpp::ParameterValue(
+      0.75),
+    "lambda: Weighting factor for intensity likelihood in the total particle weight update."
+    "Controls how much influence the intensity likelihood has relative to the rest of the observation models."
+    "Typical values: 0.5 (less influence), 1.0 (normal), >1.0 (stronger influence). Tune experimentally.");
+
 }
 
 AmclNode::~AmclNode()
@@ -243,6 +267,7 @@ AmclNode::on_configure(const rclcpp_lifecycle::State & /*state*/)
   initTransforms();
   initParticleFilter();
   initLaserScan();
+  initIntensityModel();
   initMessageFilters();
   initPubSub();
   initServices();
@@ -848,6 +873,33 @@ bool AmclNode::updateFilter(
   lasers_[laser_index]->sensorUpdate(pf_, reinterpret_cast<nav2_amcl::LaserData *>(&ldata));
   lasers_update_[laser_index] = false;
   pf_odom_pose_ = pose;
+
+  if (use_intensity_map_ && intensity_model_) {
+    nav2_amcl::intensity_data_t intensity_data;
+    intensity_data.pose = pose;
+
+    // Check if the intensity vector is present and valid
+    if (!laser_scan->intensities.empty()) {
+      intensity_data.intensities = laser_scan->intensities;
+      intensity_data.ranges.reserve(laser_scan->ranges.size());
+
+      for (int i = 0; i < static_cast<int>(laser_scan->ranges.size()); ++i) {
+        if (laser_scan->ranges[i] <= range_min) {
+          intensity_data.ranges.push_back(ldata.range_max);
+        } else {
+          intensity_data.ranges.push_back(laser_scan->ranges[i]);
+        }
+      }
+
+      intensity_data.angle_min = angle_min;
+      intensity_data.angle_increment = angle_increment;
+      intensity_model_->sensorUpdate(pf_, &intensity_data);
+    } else {
+      RCLCPP_WARN(get_logger(), "Laser scan has no intensity data, skipping intensity update.");
+    }
+  }
+
+
   return true;
 }
 
@@ -1092,7 +1144,9 @@ AmclNode::initParameters()
   get_parameter("map_topic", map_topic_);
   get_parameter("use_intensity_map", use_intensity_map_);
   get_parameter("intensity_map_topic", intensity_map_topic_);
-
+  get_parameter("intensity_model_type", intensity_model_type_);
+  get_parameter("sigma_intensity", sigma_intensity_);
+  get_parameter("lambda_intensity", lambda_intensity_);
 
   save_pose_period_ = tf2::durationFromSec(1.0 / save_pose_rate);
   transform_tolerance_ = tf2::durationFromSec(tmp_tol);
@@ -1402,8 +1456,33 @@ AmclNode::intensityMapReceived(const nav_msgs::msg::OccupancyGrid::SharedPtr msg
     return;
   }
   RCLCPP_INFO(get_logger(), "Intensity map received!");
-  // Aquí puedes llamar a un método específico, como:
-  // handleIntensityMapMessage(*msg);
+  handleIntensityMapMessage(*msg);
+}
+
+void
+AmclNode::handleIntensityMapMessage(const nav_msgs::msg::OccupancyGrid & msg)
+{
+  std::lock_guard<std::recursive_mutex> cfl(mutex_);
+
+  if (msg.header.frame_id != global_frame_id_) {
+    RCLCPP_WARN(
+      get_logger(), "Frame_id of intensity map received:'%s' doesn't match global_frame_id:'%s'. "
+      "This could cause issues with reading published topics",
+      msg.header.frame_id.c_str(),
+      global_frame_id_.c_str());
+  }
+
+  if (!map_ ||
+    map_->size_x != static_cast<int>(msg.info.width) ||
+    map_->size_y != static_cast<int>(msg.info.height))
+  {
+    RCLCPP_ERROR(get_logger(), "Intensity map dimensions do not match occupancy map dimensions!");
+    return;
+  }
+
+  convertIntensityMap(msg);
+
+  RCLCPP_INFO(get_logger(), "Intensity map successfully loaded.");
 }
 
 void
@@ -1490,6 +1569,18 @@ AmclNode::convertMap(const nav_msgs::msg::OccupancyGrid & map_msg)
   return map;
 }
 
+void
+AmclNode::convertIntensityMap(const nav_msgs::msg::OccupancyGrid & msg)
+{
+  for (int y = 0; y < map_->size_y; ++y) {
+    for (int x = 0; x < map_->size_x; ++x) {
+      int idx = MAP_INDEX(map_, x, y);
+      map_->cells[idx].intensity_level = static_cast<int>(msg.data[idx]);
+    }
+  }
+}
+
+
 bool
 AmclNode::validateIntensityMap(const nav_msgs::msg::OccupancyGrid & intensity_map)
 {
@@ -1505,14 +1596,14 @@ AmclNode::validateIntensityMap(const nav_msgs::msg::OccupancyGrid & intensity_ma
   {
     RCLCPP_ERROR(
       get_logger(),
-      "Intensity map dimensions do not match occupancy map.");
+      "Intensity map dimensions do not match occupancy map (1).");
     return false;
   }
 
   if (std::fabs(map_->scale - intensity_map.info.resolution) > 1e-6) {
     RCLCPP_ERROR(
       get_logger(),
-      "Intensity map resolution does not match occupancy map.");
+      "Intensity map resolution does not match occupancy map (2).");
     return false;
   }
 
@@ -1526,7 +1617,7 @@ AmclNode::validateIntensityMap(const nav_msgs::msg::OccupancyGrid & intensity_ma
   {
     RCLCPP_ERROR(
       get_logger(),
-      "Intensity map origin does not match occupancy map origin.");
+      "Intensity map origin does not match occupancy map origin (3).");
     return false;
   }
 
@@ -1687,6 +1778,36 @@ AmclNode::initLaserScan()
 {
   scan_error_count_ = 0;
   last_laser_received_ts_ = rclcpp::Time(0);
+}
+void
+AmclNode::initIntensityModel()
+{
+
+  RCLCPP_INFO(
+    get_logger(), "Trying to load intensity model plugin: %s",
+    intensity_model_type_.c_str());
+  try {
+    intensity_model_loader_ =
+      std::make_shared<pluginlib::ClassLoader<nav2_amcl::IntensityModel>>(
+      "nav2_amcl", "nav2_amcl::IntensityModel");
+
+    auto classes = intensity_model_loader_->getDeclaredClasses();
+    for (const auto & cls : classes) {
+      RCLCPP_INFO(get_logger(), "pluginlib sees class: %s", cls.c_str());
+    }
+
+    intensity_model_ = intensity_model_loader_->createSharedInstance(intensity_model_type_);
+    RCLCPP_INFO(get_logger(), "Loaded intensity model plugin: %s", intensity_model_type_.c_str());
+
+    double sigma_intensity = this->declare_parameter<double>("sigma_intensity", 30.0);
+    double lambda_intensity = this->declare_parameter<double>("lambda_intensity", 1.0);
+
+    intensity_model_->setParameters(sigma_intensity, lambda_intensity);
+
+  } catch (const pluginlib::PluginlibException & ex) {
+    RCLCPP_FATAL(get_logger(), "Failed to load intensity model plugin: %s", ex.what());
+    throw;
+  }
 }
 
 }  // namespace nav2_amcl

@@ -51,6 +51,9 @@ typedef struct
   // Distance to the nearest occupied cell
   double occ_dist;
 
+  // Intensity values
+  int intensity_level;
+
   // Wifi levels
   // int wifi_levels[MAP_WIFI_MAX_LEVELS];
 } map_cell_t;

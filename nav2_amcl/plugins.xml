@@ -5,4 +5,11 @@
   <class type="nav2_amcl::OmniMotionModel" base_class_type="nav2_amcl::MotionModel">
     <description>This is a omni plugin.</description>
   </class>
+<!--/library-->
+
+<!--library path="sensors_lib"-->
+  <class type="nav2_amcl::LikelihoodFieldIntensityModel"
+       base_class_type="nav2_amcl::IntensityModel">
+    <description>Likelihood Field model for laser intensity values.</description>
+  </class>
 </library>

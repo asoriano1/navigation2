@@ -42,6 +42,7 @@
 #include "tf2_ros/transform_broadcaster.h"
 #include "tf2_ros/transform_listener.h"
 #include "pluginlib/class_loader.hpp"
+#include "nav2_amcl/sensors/intensity/intensity_model.hpp"
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-parameter"
@@ -137,6 +138,10 @@ protected:
    */
   void handleMapMessage(const nav_msgs::msg::OccupancyGrid & msg);
   /*
+   * @brief Handle a new intensity map message
+   */
+  void handleIntensityMapMessage(const nav_msgs::msg::OccupancyGrid & msg);
+  /*
    * @brief Creates lookup table of free cells in map
    */
   void createFreeSpaceVector();
@@ -151,6 +156,11 @@ protected:
    * @return pointer to map for AMCL to use
    */
   map_t * convertMap(const nav_msgs::msg::OccupancyGrid & map_msg);
+  /*
+   * @brief Convert an occupancy grid intensities map to an AMCL map
+   * @param map_msg Intensity Map message
+  */
+  void convertIntensityMap(const nav_msgs::msg::OccupancyGrid & msg);
   bool first_map_only_{true};
   std::atomic<bool> first_map_received_{false};
   amcl_hyp_t * initial_pose_hyp_;
@@ -282,6 +292,11 @@ protected:
    */
   void initLaserScan();
   /*
+   * @brief Initialize intensity model
+   */
+  void initIntensityModel();
+  std::string intensity_model_type_;
+  /*
    * @brief Create a laser object
    */
   nav2_amcl::Laser * createLaserObject();
@@ -403,6 +418,11 @@ protected:
   std::string map_topic_{"map"};
   bool use_intensity_map_{false};
   std::string intensity_map_topic_{"intensity_map"};
+  std::shared_ptr<pluginlib::ClassLoader<nav2_amcl::IntensityModel>> intensity_model_loader_;
+  std::shared_ptr<nav2_amcl::IntensityModel> intensity_model_;
+  double sigma_intensity_; // Standard deviation for the intensity likelihood field model
+  double lambda_intensity_; // Weight for intensity likelihood (optional)
+
 };
 
 }  // namespace nav2_amcl

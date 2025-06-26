@@ -43,5 +43,7 @@
 
   <export>
     <build_type>ament_cmake</build_type>
+    <pluginlib plugin="lib/nav2_amcl/plugins.xml"/>
+    <!--library path="libsensors_lib.so"/-->
   </export>
 </package>

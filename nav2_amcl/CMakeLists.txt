@@ -87,6 +87,9 @@ target_link_libraries(${library_name}
 
 rclcpp_components_register_nodes(${library_name} "nav2_amcl::AmclNode")
 
+install(FILES plugins.xml
+  DESTINATION lib/${PROJECT_NAME})
+
 install(TARGETS ${library_name}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
@@ -99,6 +102,10 @@ install(TARGETS ${executable_name}
 
 install(DIRECTORY include/
   DESTINATION include/
+)
+
+install(DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}/
 )
 
 if(BUILD_TESTING)
@@ -120,6 +127,20 @@ if(BUILD_TESTING)
   )
 
   ament_target_dependencies(test_intensity_map_validation
+    rclcpp
+    nav_msgs
+  )
+
+  ament_add_gtest(test_likelihood_field_intensity_model_validation
+    test/test_likelihood_field_intensity_model_validation.cpp
+  )
+  target_link_libraries(test_likelihood_field_intensity_model_validation
+    sensors_lib
+    pf_lib
+    map_lib
+  )
+  ament_target_dependencies(test_likelihood_field_intensity_model_validation
+    pluginlib
     rclcpp
     nav_msgs
   )

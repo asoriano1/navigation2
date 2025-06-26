@@ -132,3 +132,18 @@ TEST_F(AmclIntensityMapValidationTest, NullMapFails)
   nav_msgs::msg::OccupancyGrid empty_map;
   EXPECT_FALSE(node_->validateIntensityMap(empty_map));
 }
+
+TEST_F(AmclIntensityMapValidationTest, HandlesOutOfRangeValues)
+{
+  // Usa el helper para crear un intensity_map consistente con el map_ interno.
+  auto intensity_map = validMap();
+  intensity_map.data.resize(map_->size_x * map_->size_y, 100);
+
+  // Pon algunos valores fuera de rango (pero dimensiones, resolución y origen son correctos)
+  intensity_map.data[0] = -5;
+  intensity_map.data[1] = 127;
+  intensity_map.data[2] = -1;
+
+  // Debe pasar, porque la función solo valida dimensiones, resolución y origen.
+  EXPECT_TRUE(node_->validateIntensityMap(intensity_map));
+}
