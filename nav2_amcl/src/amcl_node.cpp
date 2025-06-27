@@ -1799,10 +1799,7 @@ AmclNode::initIntensityModel()
     intensity_model_ = intensity_model_loader_->createSharedInstance(intensity_model_type_);
     RCLCPP_INFO(get_logger(), "Loaded intensity model plugin: %s", intensity_model_type_.c_str());
 
-    double sigma_intensity = this->declare_parameter<double>("sigma_intensity", 30.0);
-    double lambda_intensity = this->declare_parameter<double>("lambda_intensity", 1.0);
-
-    intensity_model_->setParameters(sigma_intensity, lambda_intensity);
+    intensity_model_->setParameters(sigma_intensity_, lambda_intensity_);
 
   } catch (const pluginlib::PluginlibException & ex) {
     RCLCPP_FATAL(get_logger(), "Failed to load intensity model plugin: %s", ex.what());
