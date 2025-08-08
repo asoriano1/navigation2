@@ -1507,8 +1507,8 @@ AmclNode::intensityMapReceived(const nav_msgs::msg::OccupancyGrid::SharedPtr msg
 
 void
 AmclNode::mapsReceived(
-  const nav_msgs::msg::OccupancyGrid::ConstSharedPtr map_msg,
-  const nav_msgs::msg::OccupancyGrid::ConstSharedPtr intensity_msg)
+  const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & map_msg,
+  const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & intensity_msg)
 {
   if (first_map_only_ && first_map_received_) {
     return;

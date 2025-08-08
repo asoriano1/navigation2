@@ -54,6 +54,9 @@
 
 #define NEW_UNIFORM_SAMPLING 1
 
+using namespace message_filters;
+using namespace nav_msgs::msg;
+
 namespace nav2_amcl
 {
 /*
@@ -176,11 +179,11 @@ protected:
   std::recursive_mutex mutex_;
   using MapSyncPolicy = 
     message_filters::sync_policies::ApproximateTime<nav_msgs::msg::OccupancyGrid, nav_msgs::msg::OccupancyGrid>;
-  std::unique_ptr<message_filters::Subscriber<nav_msgs::msg::OccupancyGrid,
-    rclcpp_lifecycle::LifecycleNode>> map_sub_;
-  std::unique_ptr<message_filters::Subscriber<nav_msgs::msg::OccupancyGrid,
-    rclcpp_lifecycle::LifecycleNode>> intensity_map_sub_;
-  std::shared_ptr<message_filters::Synchronizer<MapSyncPolicy>> map_sync_;
+
+  std::shared_ptr<Subscriber<OccupancyGrid, rclcpp_lifecycle::LifecycleNode>> map_sub_;
+  std::shared_ptr<Subscriber<OccupancyGrid, rclcpp_lifecycle::LifecycleNode>> intensity_map_sub_;
+  std::shared_ptr<Synchronizer<sync_policies::ApproximateTime<OccupancyGrid, OccupancyGrid>>> map_sync_;
+
 #if NEW_UNIFORM_SAMPLING
   static std::vector<std::pair<int, int>> free_space_indices;
 #endif
