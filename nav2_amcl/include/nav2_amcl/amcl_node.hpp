@@ -30,6 +30,8 @@
 
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "message_filters/subscriber.h"
+#include "message_filters/synchronizer.h"
+#include "message_filters/sync_policies/approximate_time.h"
 #include "nav2_util/lifecycle_node.hpp"
 #include "nav2_amcl/motion_model/motion_model.hpp"
 #include "nav2_amcl/sensors/laser/laser.hpp"
@@ -123,7 +125,7 @@ protected:
 
   // Map-related
   /*
-   * @brief Get new map from ROS topic to localize in
+   * @brief Get new occupancy map from ROS topic to localize in
    * @param msg Map message
    */
   void mapReceived(const nav_msgs::msg::OccupancyGrid::SharedPtr msg);
@@ -132,8 +134,14 @@ protected:
    * @param msg Map message
    */
   void intensityMapReceived(const nav_msgs::msg::OccupancyGrid::SharedPtr msg);
+    /*
+   * @brief Callback when synchronized map and intensity map are received
+   */
+  void mapsReceived(
+    const nav_msgs::msg::OccupancyGrid::ConstSharedPtr map_msg,
+    const nav_msgs::msg::OccupancyGrid::ConstSharedPtr intensity_msg);
   /*
-   * @brief Handle a new map message
+   * @brief Handle a new occupancy map message
    * @param msg Map message
    */
   void handleMapMessage(const nav_msgs::msg::OccupancyGrid & msg);
@@ -165,8 +173,13 @@ protected:
   std::atomic<bool> first_map_received_{false};
   amcl_hyp_t * initial_pose_hyp_;
   std::recursive_mutex mutex_;
-  rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::ConstSharedPtr map_sub_;
-  rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::ConstSharedPtr intensity_map_sub_;
+  using MapSyncPolicy = 
+    message_filters::sync_policies::ApproximateTime<nav_msgs::msg::OccupancyGrid, nav_msgs::msg::OccupancyGrid>;
+  std::unique_ptr<message_filters::Subscriber<nav_msgs::msg::OccupancyGrid,
+    rclcpp_lifecycle::LifecycleNode>> map_sub_;
+  std::unique_ptr<message_filters::Subscriber<nav_msgs::msg::OccupancyGrid,
+    rclcpp_lifecycle::LifecycleNode>> intensity_map_sub_;
+  std::shared_ptr<message_filters::Synchronizer<MapSyncPolicy>> map_sync_;
 #if NEW_UNIFORM_SAMPLING
   static std::vector<std::pair<int, int>> free_space_indices;
 #endif

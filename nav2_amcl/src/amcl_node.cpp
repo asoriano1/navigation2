@@ -267,7 +267,9 @@ AmclNode::on_configure(const rclcpp_lifecycle::State & /*state*/)
   initTransforms();
   initParticleFilter();
   initLaserScan();
-  initIntensityModel();
+  if (use_intensity_map_) {
+    initIntensityModel();
+  }
   initMessageFilters();
   initPubSub();
   initServices();
@@ -362,6 +364,8 @@ AmclNode::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
 
   // Map
   map_sub_.reset();  //  map_sub_ may access map_, so it should be reset earlier
+  intensity_map_sub_.reset();
+  map_sync_.reset();
   if (map_ != NULL) {
     map_free(map_);
     map_ = nullptr;
@@ -1339,6 +1343,14 @@ AmclNode::dynamicParametersCallback(
       } else if (param_name == "map_topic") {
         map_topic_ = parameter.as_string();
         reinit_map = true;
+      } else if (param_name == "intensity_map_topic") {
+        intensity_map_topic_ = parameter.as_string();
+        reinit_map = true;
+      } else if (param_name == "intensity_model_type") {
+        intensity_model_type_ = parameter.as_string();
+        if (use_intensity_map_) {
+          initIntensityModel();
+        }
       } else if (param_name == "laser_model_type") {
         sensor_model_type_ = parameter.as_string();
         reinit_laser = true;
@@ -1362,6 +1374,17 @@ AmclNode::dynamicParametersCallback(
         set_initial_pose_ = parameter.as_bool();
       } else if (param_name == "first_map_only") {
         first_map_only_ = parameter.as_bool();
+      } else if (param_name == "use_intensity_map") {
+        bool new_use = parameter.as_bool();
+        if (use_intensity_map_ != new_use) {
+          use_intensity_map_ = new_use;
+          reinit_map = true;
+          if (use_intensity_map_) {
+            initIntensityModel();
+          } else {
+            intensity_model_.reset();
+          }
+        }
       }
     } else if (param_type == ParameterType::PARAMETER_INTEGER) {
       if (param_name == "max_beams") {
@@ -1422,9 +1445,23 @@ AmclNode::dynamicParametersCallback(
   // Re-initialize the map
   if (reinit_map) {
     map_sub_.reset();
-    map_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
-      map_topic_, rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
-      std::bind(&AmclNode::mapReceived, this, std::placeholders::_1));
+    intensity_map_sub_.reset();
+    map_sync_.reset();
+    map_sub_ = std::make_unique<message_filters::Subscriber<nav_msgs::msg::OccupancyGrid,
+        rclcpp_lifecycle::LifecycleNode>>(
+      this, map_topic_, rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable());
+    if (use_intensity_map_) {
+      intensity_map_sub_ = std::make_unique<message_filters::Subscriber<nav_msgs::msg::OccupancyGrid,
+          rclcpp_lifecycle::LifecycleNode>>(
+        this, intensity_map_topic_, rclcpp::QoS{1}.transient_local().reliable());
+      map_sync_ = std::make_shared<message_filters::Synchronizer<MapSyncPolicy>>(
+        MapSyncPolicy(10), *map_sub_, *intensity_map_sub_);
+      map_sync_->registerCallback(
+        std::bind(&AmclNode::mapsReceived, this, std::placeholders::_1, std::placeholders::_2));
+    } else {
+      map_sub_->registerCallback(
+        std::bind(&AmclNode::mapReceived, this, std::placeholders::_1));
+    }
   }
 
   result.successful = true;
@@ -1456,6 +1493,38 @@ AmclNode::intensityMapReceived(const nav_msgs::msg::OccupancyGrid::SharedPtr msg
   RCLCPP_INFO(get_logger(), "Intensity map received!");
   handleIntensityMapMessage(*msg);
 }
+
+void
+AmclNode::mapsReceived(
+  const nav_msgs::msg::OccupancyGrid::ConstSharedPtr map_msg,
+  const nav_msgs::msg::OccupancyGrid::ConstSharedPtr intensity_msg)
+{
+  if (first_map_only_ && first_map_received_) {
+    return;
+  }
+  if (!nav2_util::validateMsg(*map_msg)) {
+    RCLCPP_ERROR(get_logger(), "Received map message is malformed. Rejecting.");
+    return;
+  }
+  if (!validateIntensityMap(*intensity_msg)) {
+    RCLCPP_WARN(get_logger(), "The intensity map is not valid. Ignoring...");
+    return;
+  }
+  rclcpp::Time map_time(map_msg->header.stamp);
+  rclcpp::Time intensity_time(intensity_msg->header.stamp);
+  rclcpp::Duration diff = map_time > intensity_time ?
+    map_time - intensity_time : intensity_time - map_time;
+  if (diff > rclcpp::Duration::from_seconds(0.5)) {
+    RCLCPP_WARN(
+      get_logger(), "Map and intensity map timestamps differ by %f s, skipping",
+      diff.seconds());
+    return;
+  }
+  handleMapMessage(*map_msg);
+  handleIntensityMapMessage(*intensity_msg);
+  first_map_received_ = true;
+}
+
 
 void
 AmclNode::handleIntensityMapMessage(const nav_msgs::msg::OccupancyGrid & msg)
@@ -1686,20 +1755,25 @@ AmclNode::initPubSub()
     "initialpose", rclcpp::SystemDefaultsQoS(),
     std::bind(&AmclNode::initialPoseReceived, this, std::placeholders::_1));
 
-  map_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
-    map_topic_, rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
-    std::bind(&AmclNode::mapReceived, this, std::placeholders::_1));
-
-  RCLCPP_INFO(get_logger(), "Subscribed to map topic.");
+  map_sub_ = std::make_unique<message_filters::Subscriber<nav_msgs::msg::OccupancyGrid,
+      rclcpp_lifecycle::LifecycleNode>>(
+    this, map_topic_, rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable());  
 
   if (use_intensity_map_) {
-    intensity_map_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
-      intensity_map_topic_,
-      rclcpp::QoS{1}.transient_local().reliable(),
-      std::bind(&AmclNode::intensityMapReceived, this, std::placeholders::_1));
+    intensity_map_sub_ = std::make_unique<message_filters::Subscriber<nav_msgs::msg::OccupancyGrid,
+        rclcpp_lifecycle::LifecycleNode>>(
+      this, intensity_map_topic_, rclcpp::QoS{1}.transient_local().reliable());
+    map_sync_ = std::make_shared<message_filters::Synchronizer<MapSyncPolicy>>(
+      MapSyncPolicy(10), *map_sub_, *intensity_map_sub_);
+    map_sync_->registerCallback(
+      std::bind(&AmclNode::mapsReceived, this, std::placeholders::_1, std::placeholders::_2));
     RCLCPP_INFO(
-      get_logger(), "Subscribed to intensity map topic '%s'",
-      intensity_map_topic_.c_str());
+      get_logger(), "Subscribed to map topic '%s' and intensity map topic '%s'",
+      map_topic_.c_str(), intensity_map_topic_.c_str());
+  } else {
+    map_sub_->registerCallback(
+      std::bind(&AmclNode::mapReceived, this, std::placeholders::_1));
+    RCLCPP_INFO(get_logger(), "Subscribed to map topic.");
   }
 
 }
