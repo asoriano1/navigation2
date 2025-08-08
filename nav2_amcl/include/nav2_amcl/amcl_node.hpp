@@ -132,11 +132,7 @@ protected:
    * @param msg Map message
    */
   void mapReceived(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & msg);
-  /*
-   * @brief Get new intensity map from ROS topic to localize in
-   * @param msg Map message
-   */
-  void intensityMapReceived(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & msg);
+
     /*
    * @brief Callback when synchronized map and intensity map are received
    */

@@ -1,34 +1,20 @@
 /*
- * Unit tests for validating the consistency between the intensity map and the occupancy map
- * used by the AMCL node in Nav2.
+ * Unit tests for LikelihoodFieldIntensityModel::sensorUpdate.
  *
- * These tests verify that the intensity map received:
- *  - Is not null (occupancy map must be initialized).
- *  - Has the same dimensions (width, height) as the occupancy map.
- *  - Shares the same resolution (meters per pixel).
- *  - Has the same origin (x, y position and orientation).
- *
- * The `TestableAmclNode` subclass is used to access the protected `validateIntensityMap` method
- * and to inject a synthetic occupancy map (`map_`) for testing purposes.
- *
- * Each test creates a valid or deliberately invalid `nav_msgs::msg::OccupancyGrid` and
- * asserts that the validation function returns the expected result.
- *
- * Tests:
- *  - ValidMapPasses: A properly matched map should pass validation.
- *  - InvalidSizeFails: Mismatched width triggers failure.
- *  - InvalidResolutionFails: Different resolution triggers failure.
- *  - InvalidOriginFails: Different origin position triggers failure.
- *  - InvalidOrientationFails: Different orientation triggers failure.
- *  - NullOccupancyMapFails: If the internal occupancy map is null, validation should fail.
+ * These tests verify that the method returns a boolean indicating if the
+ * update was performed. The update should succeed when valid data and an
+ * intensity map are provided and fail otherwise.
  */
 
 /* Author: Ángel Soriano*/
 
 #include <gtest/gtest.h>
+#include <cstdlib>
+#include <limits>
+
 #include "nav2_amcl/sensors/intensity/likelihood_field_intensity_model.hpp"
+#include "nav2_amcl/map/map.hpp"
 #include "nav2_amcl/pf/pf.hpp"
-#include "nav_msgs/msg/occupancy_grid.hpp"
 #include "rclcpp/rclcpp.hpp"
 
 
@@ -40,90 +26,123 @@ class LikelihoodFieldIntensityModelTest : public ::testing::Test
 protected:
   void SetUp() override
   {
-    // Crear un mapa de ocupación falso
-    map_.info.resolution = 0.05;
-    map_.info.width = 100;
-    map_.info.height = 100;
-    map_.info.origin.position.x = 0.0;
-    map_.info.origin.position.y = 0.0;
-    map_.data.resize(map_.info.width * map_.info.height, 0);
-    map_.data[50 * map_.info.width + 50] = 100;  // Punto intenso central
+    map_ = map_alloc();
+    map_->size_x = 100;
+    map_->size_y = 100;
+    map_->scale = 0.05;
+    map_->origin_x = 0.0;
+    map_->origin_y = 0.0;
+    map_->cells = reinterpret_cast<map_cell_t *>(
+      malloc(sizeof(map_cell_t) * map_->size_x * map_->size_y));
+    for (int i = 0; i < map_->size_x * map_->size_y; ++i) {
+      map_->cells[i].occ_state = 0;
+      map_->cells[i].occ_dist = 0.0;
+      map_->cells[i].intensity_level = 0;
+    }
+    map_->cells[MAP_INDEX(map_, 50, 50)].occ_state = 1;
+    map_->cells[MAP_INDEX(map_, 50, 50)].intensity_level = 100;
 
     model_ = std::make_unique<LikelihoodFieldIntensityModel>();
+    model_->setIntensityMap(map_);
 
     pf_ = std::shared_ptr<pf_t>(pf_alloc(100, 0, 0.0, 0.0, nullptr), pf_free);
-    //pf_ = pf_alloc(1, 0, 0.0, 0.0, nullptr);
     pf_vector_t pose = pf_vector_zero();
     pf_init(pf_.get(), pose, pf_matrix_zero());
   }
 
   void TearDown() override
   {
-    //pf_free(pf_.get());
-    //model_ = nullptr;
-    //pf_ = nullptr;
+    if (map_) {
+      map_free(map_);
+      map_ = nullptr;
+    }
   }
 
   std::unique_ptr<LikelihoodFieldIntensityModel> model_;
   std::shared_ptr<pf_t> pf_;
-  nav_msgs::msg::OccupancyGrid map_;
+  map_t * map_{nullptr};
 };
 
-TEST_F(LikelihoodFieldIntensityModelTest, SensorUpdateReturnsProbabilityInRange) {
+TEST_F(LikelihoodFieldIntensityModelTest, SensorUpdateReturnsTrueWithValidData)
+{
   intensity_data_t data;
-  data.intensities.push_back(100.0);
+  data.ranges.push_back(1.0f);
+  data.intensities.push_back(100.0f);
+  data.angle_min = 0.0;
+  data.angle_increment = 0.0;
 
-  double prob = model_->sensorUpdate(pf_.get(), &data);
-  EXPECT_GE(prob, 0.0);
-  EXPECT_LE(prob, 1.0);
+  bool updated = model_->sensorUpdate(pf_.get(), &data);
+  EXPECT_TRUE(updated);
 }
 
-TEST_F(LikelihoodFieldIntensityModelTest, SensorUpdateWithNoIntensitiesReturnsOne) {
+TEST_F(LikelihoodFieldIntensityModelTest, SensorUpdateWithNoIntensitiesReturnsFalse)
+{
   intensity_data_t data;
-  // No intensities, no ranges
-  double prob = model_->sensorUpdate(pf_.get(), &data);
-  EXPECT_DOUBLE_EQ(prob, 1.0);
+  data.ranges.push_back(1.0f);
+
+  bool updated = model_->sensorUpdate(pf_.get(), &data);
+  EXPECT_FALSE(updated);
 }
 
-TEST_F(LikelihoodFieldIntensityModelTest, SensorUpdateWithInvalidRangeIgnored) {
+TEST_F(LikelihoodFieldIntensityModelTest, SensorUpdateWithInvalidRangeIgnored)
+{
   intensity_data_t data;
-  data.ranges.push_back(std::numeric_limits<double>::infinity());
-  data.intensities.push_back(100.0);
+  data.ranges.push_back(std::numeric_limits<float>::infinity());
+  data.intensities.push_back(100.0f);
+  data.angle_min = 0.0;
+  data.angle_increment = 0.0;
 
-  double prob = model_->sensorUpdate(pf_.get(), &data);
-  EXPECT_DOUBLE_EQ(prob, 1.0);
+  bool updated = model_->sensorUpdate(pf_.get(), &data);
+  EXPECT_TRUE(updated);
 }
 
-TEST_F(LikelihoodFieldIntensityModelTest, SensorUpdateWithoutMapReturnsOne) {
+TEST_F(LikelihoodFieldIntensityModelTest, SensorUpdateWithoutMapReturnsFalse)
+{
   model_->setIntensityMap(nullptr);
   intensity_data_t data;
-  data.ranges.push_back(1.0);
-  data.intensities.push_back(100.0);
+  data.ranges.push_back(1.0f);
+  data.intensities.push_back(100.0f);
+  data.angle_min = 0.0;
+  data.angle_increment = 0.0;
 
-  double prob = model_->sensorUpdate(pf_.get(), &data);
-  EXPECT_DOUBLE_EQ(prob, 1.0);
+  bool updated = model_->sensorUpdate(pf_.get(), &data);
+  EXPECT_FALSE(updated);
 }
 
-TEST_F(LikelihoodFieldIntensityModelTest, SensorUpdateWithMultipleBeams) {
+TEST_F(LikelihoodFieldIntensityModelTest, SensorUpdateWithMultipleBeams)
+{
   intensity_data_t data;
-  data.ranges = {1.0, 2.0, 3.0};
-  data.intensities = {100.0, 80.0, 60.0};
+  data.ranges = {1.0f, 2.0f, 3.0f};
+  data.intensities = {100.0f, 80.0f, 60.0f};
   data.angle_min = 0.0;
   data.angle_increment = 0.1;
 
-  double prob = model_->sensorUpdate(pf_.get(), &data);
-  EXPECT_GE(prob, 0.0);
-  EXPECT_LE(prob, 1.0);
+  bool updated = model_->sensorUpdate(pf_.get(), &data);
+  EXPECT_TRUE(updated);
 }
 
-TEST_F(LikelihoodFieldIntensityModelTest, SensorUpdateWithOutOfRangeIntensity) {
+TEST_F(LikelihoodFieldIntensityModelTest, SensorUpdateWithOutOfRangeIntensity)
+{
   intensity_data_t data;
-  data.ranges.push_back(1.0);
-  data.intensities.push_back(-128.0);
+  data.ranges.push_back(1.0f);
+  data.intensities.push_back(-128.0f);
+  data.angle_min = 0.0;
+  data.angle_increment = 0.0;
 
-  double prob = model_->sensorUpdate(pf_.get(), &data);
-  EXPECT_GE(prob, 0.0);
-  EXPECT_LE(prob, 1.0);
+  bool updated = model_->sensorUpdate(pf_.get(), &data);
+  EXPECT_TRUE(updated);
+}
+
+TEST_F(LikelihoodFieldIntensityModelTest, SensorUpdateWithMismatchedVectorSizesReturnsFalse)
+{
+  intensity_data_t data;
+  data.ranges = {1.0f, 2.0f};
+  data.intensities = {100.0f};
+  data.angle_min = 0.0;
+  data.angle_increment = 0.1;
+
+  bool updated = model_->sensorUpdate(pf_.get(), &data);
+  EXPECT_FALSE(updated);
 }
 
 }  // namespace nav2_amcl

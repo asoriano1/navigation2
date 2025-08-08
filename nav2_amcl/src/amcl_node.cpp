@@ -1319,6 +1319,16 @@ AmclNode::dynamicParametersCallback(
       } else if (param_name == "sigma_hit") {
         sigma_hit_ = parameter.as_double();
         reinit_laser = true;
+      } else if (param_name == "sigma_intensity") {
+        sigma_intensity_ = parameter.as_double();
+        if (intensity_model_) {
+          intensity_model_->setParameters(sigma_intensity_, lambda_intensity_);
+        }
+      } else if (param_name == "lambda_intensity") {
+        lambda_intensity_ = parameter.as_double();
+        if (intensity_model_) {
+          intensity_model_->setParameters(sigma_intensity_, lambda_intensity_);
+        }
       } else if (param_name == "transform_tolerance") {
         tmp_tol = parameter.as_double();
         transform_tolerance_ = tf2::durationFromSec(tmp_tol);
@@ -1394,6 +1404,7 @@ AmclNode::dynamicParametersCallback(
             initIntensityModel();
           } else {
             intensity_model_.reset();
+            last_intensity_map_.reset();
           }
         }
       }
@@ -1469,11 +1480,17 @@ AmclNode::dynamicParametersCallback(
         rclcpp::QoS{1}.transient_local().reliable().get_rmw_qos_profile());
       map_sync_ = std::make_shared<message_filters::Synchronizer<MapSyncPolicy>>(
         MapSyncPolicy(10), *map_sub_, *intensity_map_sub_);
+      map_sync_->setMaxIntervalDuration(
+        rclcpp::Duration::from_seconds(map_sync_tolerance_));
       map_sync_->registerCallback(
         std::bind(&AmclNode::mapsReceived, this, std::placeholders::_1, std::placeholders::_2));
+      RCLCPP_INFO(
+        get_logger(), "Subscribed to map topic '%s' and intensity map topic '%s'",
+        map_topic_.c_str(), intensity_map_topic_.c_str());
     } else {
       map_sub_->registerCallback(
         std::bind(&AmclNode::mapReceived, this, std::placeholders::_1));
+      RCLCPP_INFO(get_logger(), "Subscribed to map topic.");
     }
   }
 
@@ -1494,17 +1511,6 @@ AmclNode::mapReceived(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & msg)
   }
   handleMapMessage(*msg);
   first_map_received_ = true;
-}
-
-void
-AmclNode::intensityMapReceived(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & msg)
-{
-  if (!validateIntensityMap(*msg)) {
-    RCLCPP_WARN(get_logger(), "The intensity map is not valid. Ignoring...");
-    return;
-  }
-  RCLCPP_INFO(get_logger(), "Intensity map received!");
-  handleIntensityMapMessage(*msg);
 }
 
 void
@@ -1582,7 +1588,7 @@ AmclNode::handleMapMessage(const nav_msgs::msg::OccupancyGrid & msg)
   freeMapDependentMemory();
   map_ = convertMap(msg);
 
-  if (last_intensity_map_) {
+  if (use_intensity_map_ && last_intensity_map_) {
     convertIntensityMap(*last_intensity_map_);
     if (intensity_model_) {
       intensity_model_->setIntensityMap(map_);
@@ -1661,7 +1667,12 @@ AmclNode::convertIntensityMap(const nav_msgs::msg::OccupancyGrid & msg)
   for (int y = 0; y < map_->size_y; ++y) {
     for (int x = 0; x < map_->size_x; ++x) {
       int idx = MAP_INDEX(map_, x, y);
-      map_->cells[idx].intensity_level = static_cast<int>(msg.data[idx]);
+      // Interpret the raw byte as unsigned to preserve values 0-255. Casting to
+      // uint8_t prevents sign extension when `msg.data` contains values > 127.
+      // Any out-of-range input is normalized into this range by the uint8_t
+      // conversion (modulo 256).
+      const uint8_t raw_value = static_cast<uint8_t>(msg.data[idx]);
+      map_->cells[idx].intensity_level = static_cast<int>(raw_value);
     }
   }
 }
@@ -1696,10 +1707,12 @@ AmclNode::validateIntensityMap(const nav_msgs::msg::OccupancyGrid & intensity_ma
   double occ_origin_x = map_->origin_x;
   double occ_origin_y = map_->origin_y;
 
-  if (occ_origin_x != intensity_map.info.origin.position.x ||
-    occ_origin_y != intensity_map.info.origin.position.y ||
-    intensity_map.info.origin.orientation.z != 0.0 ||
-    intensity_map.info.origin.orientation.w != 1.0)
+  if (std::fabs(occ_origin_x - intensity_map.info.origin.position.x) > 1e-6 ||
+    std::fabs(occ_origin_y - intensity_map.info.origin.position.y) > 1e-6 ||
+    std::fabs(intensity_map.info.origin.orientation.x - 0.0) > 1e-6 ||
+    std::fabs(intensity_map.info.origin.orientation.y - 0.0) > 1e-6 ||
+    std::fabs(intensity_map.info.origin.orientation.z - 0.0) > 1e-6 ||
+    std::fabs(intensity_map.info.origin.orientation.w - 1.0) > 1e-6)
   {
     RCLCPP_ERROR(
       get_logger(),

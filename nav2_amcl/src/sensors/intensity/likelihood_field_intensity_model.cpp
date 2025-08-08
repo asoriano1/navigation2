@@ -139,6 +139,13 @@ bool LikelihoodFieldIntensityModel::sensorUpdate(pf_t * pf, const intensity_data
     return false;
   }
 
+  if (data->intensities.size() != data->ranges.size()) {
+    RCLCPP_WARN(
+      rclcpp::get_logger("amcl_intensity"),
+      "Intensity and range sizes differ: intensities:%zu ranges:%zu",
+      data->intensities.size(), data->ranges.size());
+    return false;
+  }
 
   auto sensor_function_wrapper = [](void * obj, pf_sample_set_t * set) -> double {
       auto * self = reinterpret_cast<LikelihoodFieldIntensityModel *>(obj);

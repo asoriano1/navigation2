@@ -26,7 +26,8 @@
 /* Author: Ángel Soriano*/
 
 
- #include <gtest/gtest.h>
+#include <gtest/gtest.h>
+#include <cstdint>
 #include <memory>
 
 #include "nav2_amcl/amcl_node.hpp"
@@ -38,6 +39,7 @@ class TestableAmclNode : public nav2_amcl::AmclNode
 public:
   using nav2_amcl::AmclNode::AmclNode;
   using nav2_amcl::AmclNode::validateIntensityMap;
+  using nav2_amcl::AmclNode::convertIntensityMap;
 
   void setMap(map_t * test_map)
   {
@@ -83,6 +85,8 @@ protected:
     map.info.resolution = static_cast<float>(map_->scale);
     map.info.origin.position.x = static_cast<float>(map_->origin_x);
     map.info.origin.position.y = static_cast<float>(map_->origin_y);
+    map.info.origin.orientation.x = 0.0;
+    map.info.origin.orientation.y = 0.0;
     map.info.origin.orientation.z = 0.0;
     map.info.origin.orientation.w = 1.0;
     return map;
@@ -120,7 +124,21 @@ TEST_F(AmclIntensityMapValidationTest, InvalidOriginFails)
   EXPECT_FALSE(node_->validateIntensityMap(map));
 }
 
-TEST_F(AmclIntensityMapValidationTest, InvalidOrientationFails)
+TEST_F(AmclIntensityMapValidationTest, InvalidOrientationXFails)
+{
+  auto map = validMap();
+  map.info.origin.orientation.x = 0.5;
+  EXPECT_FALSE(node_->validateIntensityMap(map));
+}
+
+TEST_F(AmclIntensityMapValidationTest, InvalidOrientationYFails)
+{
+  auto map = validMap();
+  map.info.origin.orientation.y = 0.5;
+  EXPECT_FALSE(node_->validateIntensityMap(map));
+}
+
+TEST_F(AmclIntensityMapValidationTest, InvalidOrientationZFails)
 {
   auto map = validMap();
   map.info.origin.orientation.z = 0.5;
@@ -141,9 +159,19 @@ TEST_F(AmclIntensityMapValidationTest, HandlesOutOfRangeValues)
 
   // Pon algunos valores fuera de rango (pero dimensiones, resolución y origen son correctos)
   intensity_map.data[0] = -5;
-  intensity_map.data[1] = 127;
-  intensity_map.data[2] = -1;
+  intensity_map.data[1] = static_cast<int8_t>(200);  // >127
+  intensity_map.data[2] = -1;  // 255
 
   // Debe pasar, porque la función solo valida dimensiones, resolución y origen.
   EXPECT_TRUE(node_->validateIntensityMap(intensity_map));
+}
+
+TEST_F(AmclIntensityMapValidationTest, ConvertIntensityMapPreservesHighValues)
+{
+  auto intensity_map = validMap();
+  intensity_map.data.resize(map_->size_x * map_->size_y, 0);
+  intensity_map.data[0] = static_cast<int8_t>(200);  // Valor >127
+
+  node_->convertIntensityMap(intensity_map);
+  EXPECT_EQ(map_->cells[0].intensity_level, 200);
 }
