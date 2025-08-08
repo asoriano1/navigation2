@@ -856,47 +856,45 @@ bool AmclNode::updateFilter(
     range_min = laser_scan->range_min;
   }
 
+  nav2_amcl::intensity_data_t idata;
+  bool do_intensity_update = false;
+  if (use_intensity_map_ && intensity_model_) {
+    if (!laser_scan->intensities.empty()) {
+      do_intensity_update = true;
+      idata.pose = pose;
+      idata.intensities = laser_scan->intensities;
+      idata.ranges.reserve(laser_scan->ranges.size());
+      idata.angle_min = angle_min;
+      idata.angle_increment = angle_increment;
+    } else {
+      RCLCPP_WARN(get_logger(), "Laser scan has no intensity data, skipping intensity update.");
+    }
+  }
+
   // The LaserData destructor will free this memory
   ldata.ranges = new double[ldata.range_count][2];
   for (int i = 0; i < ldata.range_count; i++) {
     // amcl doesn't (yet) have a concept of min range.  So we'll map short
     // readings to max range.
+    double range_val;
     if (laser_scan->ranges[i] <= range_min) {
-      ldata.ranges[i][0] = ldata.range_max;
+      range_val = ldata.range_max;
     } else {
-      ldata.ranges[i][0] = laser_scan->ranges[i];
+      range_val = laser_scan->ranges[i];
     }
+    ldata.ranges[i][0] = range_val;
     // Compute bearing
     ldata.ranges[i][1] = angle_min +
       (i * angle_increment);
+    if (do_intensity_update) {
+      idata.ranges.push_back(range_val);
+    }
   }
   lasers_[laser_index]->sensorUpdate(pf_, reinterpret_cast<nav2_amcl::LaserData *>(&ldata));
   lasers_update_[laser_index] = false;
   pf_odom_pose_ = pose;
-
-  if (use_intensity_map_ && intensity_model_) {
-    nav2_amcl::intensity_data_t intensity_data;
-    intensity_data.pose = pose;
-
-    // Check if the intensity vector is present and valid
-    if (!laser_scan->intensities.empty()) {
-      intensity_data.intensities = laser_scan->intensities;
-      intensity_data.ranges.reserve(laser_scan->ranges.size());
-
-      for (int i = 0; i < static_cast<int>(laser_scan->ranges.size()); ++i) {
-        if (laser_scan->ranges[i] <= range_min) {
-          intensity_data.ranges.push_back(ldata.range_max);
-        } else {
-          intensity_data.ranges.push_back(laser_scan->ranges[i]);
-        }
-      }
-
-      intensity_data.angle_min = angle_min;
-      intensity_data.angle_increment = angle_increment;
-      intensity_model_->sensorUpdate(pf_, &intensity_data);
-    } else {
-      RCLCPP_WARN(get_logger(), "Laser scan has no intensity data, skipping intensity update.");
-    }
+  if (do_intensity_update) {
+    intensity_model_->sensorUpdate(pf_, &idata);
   }
 
 
@@ -1481,6 +1479,10 @@ AmclNode::handleIntensityMapMessage(const nav_msgs::msg::OccupancyGrid & msg)
   }
 
   convertIntensityMap(msg);
+
+  if (intensity_model_) {
+    intensity_model_->setIntensityMap(map_);
+  }
 
   RCLCPP_INFO(get_logger(), "Intensity map successfully loaded.");
 }

@@ -21,6 +21,7 @@
 
 #include <math.h>
 #include <assert.h>
+#include "rclcpp/rclcpp.hpp"
 
 #include "nav2_amcl/sensors/laser/laser.hpp"
 
@@ -126,6 +127,11 @@ LikelihoodFieldModel::sensorFunction(LaserData * data, pf_sample_set_t * set)
 
     sample->weight *= p;
     total_weight += sample->weight;
+
+    //RCLCPP_INFO(
+    //  rclcpp::get_logger("amcl_sensor"),
+    //  "Laser model total weight: %f", total_weight);
+
   }
 
   return total_weight;

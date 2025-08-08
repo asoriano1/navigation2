@@ -15,6 +15,7 @@ target_include_directories(sensors_lib
 
 target_link_libraries(sensors_lib pf_lib map_lib)
 ament_target_dependencies(sensors_lib
+  rclcpp
   pluginlib
 )
 

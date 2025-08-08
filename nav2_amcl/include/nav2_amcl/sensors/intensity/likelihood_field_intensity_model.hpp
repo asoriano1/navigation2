@@ -49,12 +49,23 @@ private:
   double sigma_intensity_{30.0};
   double lambda_intensity_{1.0};
 
+  /**
+   * @brief Perform the sensor update on the particle set
+   *
+   * Static so it can be used directly with pf_update_sensor.
+   * @param data  Intensity sensor data and configuration
+   * @param set   Particle set to operate on
+   * @return Sum of updated particle weights
+   */
+  double sensorFunction(pf_sample_set_t * set);
+  const intensity_data_t * intensity_data_{nullptr};
+
 public:
   LikelihoodFieldIntensityModel();
   ~LikelihoodFieldIntensityModel() override = default;
 
-  double sensorUpdate(pf_t * pf, const intensity_data_t * data) override;
-  void setIntensityMap(map_t * map);
+  bool sensorUpdate(pf_t * pf, const intensity_data_t * data) override;
+  void setIntensityMap(map_t * map) override;
   void setParameters(double sigma_intensity, double lambda_intensity)
   {
     sigma_intensity_ = sigma_intensity;

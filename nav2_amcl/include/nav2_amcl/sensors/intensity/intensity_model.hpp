@@ -33,6 +33,7 @@
 #pragma once
 
 #include "nav2_amcl/pf/pf.hpp"
+#include "nav2_amcl/map/map.hpp"
 #include <vector>
 
 
@@ -52,8 +53,11 @@ class IntensityModel
 {
 public:
   virtual ~IntensityModel() = default;
-  virtual double sensorUpdate(pf_t * pf, const intensity_data_t * data) = 0;
+  // Update the filter with an intensity observation. Returns true if the
+  // update was performed, false otherwise (e.g. invalid data).
+  virtual bool sensorUpdate(pf_t * pf, const intensity_data_t * data) = 0;
   virtual void setParameters(double sigma_intensity, double lambda_intensity) = 0;
+  virtual void setIntensityMap(map_t * map) = 0;
 };
 
 }  // namespace nav2_amcl
