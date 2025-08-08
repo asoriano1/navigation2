@@ -238,6 +238,10 @@ AmclNode::AmclNode(const rclcpp::NodeOptions & options)
     "Set this to true, when you want to activate the intensity map suscription");
 
   add_parameter(
+    "map_sync_tolerance", rclcpp::ParameterValue(0.5),
+    "Allowed time difference in seconds between synchronized map and intensity map messages");
+
+  add_parameter(
     "sigma_intensity", rclcpp::ParameterValue(
       25.0),
     "sigma_intensity: Standard deviation of the Gaussian used in the intensity likelihood field model."
@@ -1146,6 +1150,7 @@ AmclNode::initParameters()
   get_parameter("map_topic", map_topic_);
   get_parameter("use_intensity_map", use_intensity_map_);
   get_parameter("intensity_map_topic", intensity_map_topic_);
+  get_parameter("map_sync_tolerance", map_sync_tolerance_);
   get_parameter("intensity_model_type", intensity_model_type_);
   get_parameter("sigma_intensity", sigma_intensity_);
   get_parameter("lambda_intensity", lambda_intensity_);
@@ -1334,6 +1339,12 @@ AmclNode::dynamicParametersCallback(
       } else if (param_name == "z_short") {
         z_short_ = parameter.as_double();
         reinit_laser = true;
+      } else if (param_name == "map_sync_tolerance") {
+        map_sync_tolerance_ = parameter.as_double();
+        if (map_sync_) {
+          map_sync_->setMaxIntervalDuration(
+            rclcpp::Duration::from_seconds(map_sync_tolerance_));
+        }
       }
     } else if (param_type == ParameterType::PARAMETER_STRING) {
       if (param_name == "base_frame_id") {
@@ -1510,16 +1521,7 @@ AmclNode::mapsReceived(
     RCLCPP_WARN(get_logger(), "The intensity map is not valid. Ignoring...");
     return;
   }
-  rclcpp::Time map_time(map_msg->header.stamp);
-  rclcpp::Time intensity_time(intensity_msg->header.stamp);
-  rclcpp::Duration diff = map_time > intensity_time ?
-    map_time - intensity_time : intensity_time - map_time;
-  if (diff > rclcpp::Duration::from_seconds(0.5)) {
-    RCLCPP_WARN(
-      get_logger(), "Map and intensity map timestamps differ by %f s, skipping",
-      diff.seconds());
-    return;
-  }
+  
   handleMapMessage(*map_msg);
   handleIntensityMapMessage(*intensity_msg);
   first_map_received_ = true;
@@ -1546,6 +1548,8 @@ AmclNode::handleIntensityMapMessage(const nav_msgs::msg::OccupancyGrid & msg)
     RCLCPP_ERROR(get_logger(), "Intensity map dimensions do not match occupancy map dimensions!");
     return;
   }
+
+  last_intensity_map_ = std::make_shared<nav_msgs::msg::OccupancyGrid>(msg);
 
   convertIntensityMap(msg);
 
@@ -1575,6 +1579,13 @@ AmclNode::handleMapMessage(const nav_msgs::msg::OccupancyGrid & msg)
   }
   freeMapDependentMemory();
   map_ = convertMap(msg);
+
+  if (last_intensity_map_) {
+    convertIntensityMap(*last_intensity_map_);
+    if (intensity_model_) {
+      intensity_model_->setIntensityMap(map_);
+    }
+  }
 
 #if NEW_UNIFORM_SAMPLING
   createFreeSpaceVector();
@@ -1635,6 +1646,8 @@ AmclNode::convertMap(const nav_msgs::msg::OccupancyGrid & map_msg)
     } else {
       map->cells[i].occ_state = 0;
     }
+    // Ensure intensity_level has a valid initial value
+    map->cells[i].intensity_level = 0;
   }
 
   return map;
@@ -1765,6 +1778,8 @@ AmclNode::initPubSub()
       this, intensity_map_topic_, rclcpp::QoS{1}.transient_local().reliable());
     map_sync_ = std::make_shared<message_filters::Synchronizer<MapSyncPolicy>>(
       MapSyncPolicy(10), *map_sub_, *intensity_map_sub_);
+    map_sync_->setMaxIntervalDuration(
+      rclcpp::Duration::from_seconds(map_sync_tolerance_));
     map_sync_->registerCallback(
       std::bind(&AmclNode::mapsReceived, this, std::placeholders::_1, std::placeholders::_2));
     RCLCPP_INFO(

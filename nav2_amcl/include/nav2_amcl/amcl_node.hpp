@@ -158,6 +158,7 @@ protected:
    */
   void freeMapDependentMemory();
   map_t * map_{nullptr};
+  nav_msgs::msg::OccupancyGrid::SharedPtr last_intensity_map_;
   /*
    * @brief Convert an occupancy grid map to an AMCL map
    * @param map_msg Map message
@@ -431,6 +432,7 @@ protected:
   std::string map_topic_{"map"};
   bool use_intensity_map_{false};
   std::string intensity_map_topic_{"intensity_map"};
+  double map_sync_tolerance_{0.5};
   std::shared_ptr<pluginlib::ClassLoader<nav2_amcl::IntensityModel>> intensity_model_loader_;
   std::shared_ptr<nav2_amcl::IntensityModel> intensity_model_;
   double sigma_intensity_; // Standard deviation for the intensity likelihood field model
