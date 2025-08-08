@@ -131,18 +131,18 @@ protected:
    * @brief Get new occupancy map from ROS topic to localize in
    * @param msg Map message
    */
-  void mapReceived(const nav_msgs::msg::OccupancyGrid::SharedPtr msg);
+  void mapReceived(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & msg);
   /*
    * @brief Get new intensity map from ROS topic to localize in
    * @param msg Map message
    */
-  void intensityMapReceived(const nav_msgs::msg::OccupancyGrid::SharedPtr msg);
+  void intensityMapReceived(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & msg);
     /*
    * @brief Callback when synchronized map and intensity map are received
    */
   void mapsReceived(
-    const nav_msgs::msg::OccupancyGrid::ConstSharedPtr map_msg,
-    const nav_msgs::msg::OccupancyGrid::ConstSharedPtr intensity_msg);
+    const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & map_msg,
+    const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & intensity_msg);
   /*
    * @brief Handle a new occupancy map message
    * @param msg Map message

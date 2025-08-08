@@ -1458,13 +1458,15 @@ AmclNode::dynamicParametersCallback(
     map_sub_.reset();
     intensity_map_sub_.reset();
     map_sync_.reset();
-    map_sub_ = std::make_unique<message_filters::Subscriber<nav_msgs::msg::OccupancyGrid,
+    map_sub_ = std::make_shared<message_filters::Subscriber<nav_msgs::msg::OccupancyGrid,
         rclcpp_lifecycle::LifecycleNode>>(
-      this, map_topic_, rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable());
+      this, map_topic_,
+      rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable().get_rmw_qos_profile());
     if (use_intensity_map_) {
-      intensity_map_sub_ = std::make_unique<message_filters::Subscriber<nav_msgs::msg::OccupancyGrid,
+      intensity_map_sub_ = std::make_shared<message_filters::Subscriber<nav_msgs::msg::OccupancyGrid,
           rclcpp_lifecycle::LifecycleNode>>(
-        this, intensity_map_topic_, rclcpp::QoS{1}.transient_local().reliable());
+        this, intensity_map_topic_,
+        rclcpp::QoS{1}.transient_local().reliable().get_rmw_qos_profile());
       map_sync_ = std::make_shared<message_filters::Synchronizer<MapSyncPolicy>>(
         MapSyncPolicy(10), *map_sub_, *intensity_map_sub_);
       map_sync_->registerCallback(
@@ -1480,7 +1482,7 @@ AmclNode::dynamicParametersCallback(
 }
 
 void
-AmclNode::mapReceived(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
+AmclNode::mapReceived(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & msg)
 {
   RCLCPP_DEBUG(get_logger(), "AmclNode: A new map was received.");
   if (!nav2_util::validateMsg(*msg)) {
@@ -1495,7 +1497,7 @@ AmclNode::mapReceived(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
 }
 
 void
-AmclNode::intensityMapReceived(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
+AmclNode::intensityMapReceived(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr & msg)
 {
   if (!validateIntensityMap(*msg)) {
     RCLCPP_WARN(get_logger(), "The intensity map is not valid. Ignoring...");
@@ -1768,14 +1770,16 @@ AmclNode::initPubSub()
     "initialpose", rclcpp::SystemDefaultsQoS(),
     std::bind(&AmclNode::initialPoseReceived, this, std::placeholders::_1));
 
-  map_sub_ = std::make_unique<message_filters::Subscriber<nav_msgs::msg::OccupancyGrid,
+  map_sub_ = std::make_shared<message_filters::Subscriber<nav_msgs::msg::OccupancyGrid,
       rclcpp_lifecycle::LifecycleNode>>(
-    this, map_topic_, rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable());  
+    this, map_topic_,
+    rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable().get_rmw_qos_profile());
 
   if (use_intensity_map_) {
-    intensity_map_sub_ = std::make_unique<message_filters::Subscriber<nav_msgs::msg::OccupancyGrid,
+    intensity_map_sub_ = std::make_shared<message_filters::Subscriber<nav_msgs::msg::OccupancyGrid,
         rclcpp_lifecycle::LifecycleNode>>(
-      this, intensity_map_topic_, rclcpp::QoS{1}.transient_local().reliable());
+      this, intensity_map_topic_,
+      rclcpp::QoS{1}.transient_local().reliable().get_rmw_qos_profile());
     map_sync_ = std::make_shared<message_filters::Synchronizer<MapSyncPolicy>>(
       MapSyncPolicy(10), *map_sub_, *intensity_map_sub_);
     map_sync_->setMaxIntervalDuration(
