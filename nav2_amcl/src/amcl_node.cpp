@@ -234,6 +234,10 @@ AmclNode::AmclNode(const rclcpp::NodeOptions & options)
     "Set this to true, when you want to load a new map published from the map_server");
 
   add_parameter(
+    "intensity_map_topic", rclcpp::ParameterValue("intensity_map"),
+    "Topic to subscribe to intensity map");
+
+  add_parameter(
     "use_intensity_map", rclcpp::ParameterValue(false),
     "Set this to true, when you want to activate the intensity map suscription");
 
@@ -1664,6 +1668,17 @@ AmclNode::convertMap(const nav_msgs::msg::OccupancyGrid & map_msg)
 void
 AmclNode::convertIntensityMap(const nav_msgs::msg::OccupancyGrid & msg)
 {
+  if (!map_) {
+    RCLCPP_ERROR(get_logger(), "No occupancy map available for intensity conversion");
+    return;
+  }
+  size_t expected_size = map_->size_x * map_->size_y;
+  if (msg.data.size() != expected_size) {
+    RCLCPP_ERROR(get_logger(), 
+      "Intensity map data size (%zu) doesn't match expected size (%zu)",
+      msg.data.size(), expected_size);
+    return;
+  }
   for (int y = 0; y < map_->size_y; ++y) {
     for (int x = 0; x < map_->size_x; ++x) {
       int idx = MAP_INDEX(map_, x, y);
@@ -1688,12 +1703,22 @@ AmclNode::validateIntensityMap(const nav_msgs::msg::OccupancyGrid & intensity_ma
     return false;
   }
 
-  if (static_cast<unsigned int>(map_->size_x) != intensity_map.info.width ||
-    static_cast<unsigned int>(map_->size_y) != intensity_map.info.height)
-  {
-    RCLCPP_ERROR(
-      get_logger(),
-      "Intensity map dimensions do not match occupancy map (1).");
+  // Validate dimensions
+  if (map_->size_x != static_cast<int>(intensity_map.info.width) ||
+      map_->size_y != static_cast<int>(intensity_map.info.height)) {
+    RCLCPP_ERROR(get_logger(), 
+      "Map dimensions mismatch: occ(%dx%d) vs intensity(%ux%u)",
+      map_->size_x, map_->size_y, 
+      intensity_map.info.width, intensity_map.info.height);
+    return false;
+  }
+  
+  // Validate size
+  size_t expected_size = map_->size_x * map_->size_y;
+  if (intensity_map.data.size() != expected_size) {
+    RCLCPP_ERROR(get_logger(),
+      "Intensity map data size mismatch: expected %zu, got %zu",
+      expected_size, intensity_map.data.size());
     return false;
   }
 
