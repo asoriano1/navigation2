@@ -66,11 +66,16 @@ public:
 
   bool sensorUpdate(pf_t * pf, const intensity_data_t * data) override;
   void setIntensityMap(map_t * map) override;
-  void setParameters(double sigma_intensity, double lambda_intensity)
-  {
-    sigma_intensity_ = sigma_intensity;
-    lambda_intensity_ = lambda_intensity;
+  void setParameters(double sigma, double lambda) {
+  if (sigma <= 0.0) {
+    throw std::invalid_argument("sigma_intensity must be positive");
   }
+  if (lambda < 0.0) {
+    throw std::invalid_argument("lambda_intensity must be non-negative");
+  }
+  sigma_intensity_ = sigma;
+  lambda_intensity_ = lambda;
+}
 };
 
 }  // namespace nav2_amcl
