@@ -37,6 +37,7 @@
 #include "nav2_msgs/msg/particle_cloud.hpp"
 #include "nav2_msgs/srv/set_initial_pose.hpp"
 #include "nav_msgs/srv/set_map.hpp"
+#include "nav_msgs/msg/occupancy_grid.hpp"
 #include "sensor_msgs/msg/laser_scan.hpp"
 #include "std_srvs/srv/empty.hpp"
 #include "tf2_ros/transform_broadcaster.h"
@@ -131,6 +132,8 @@ protected:
    * @param msg Map message
    */
   void handleMapMessage(const nav_msgs::msg::OccupancyGrid & msg);
+  void intensityMapReceived(const nav_msgs::msg::OccupancyGrid::SharedPtr msg);
+  void handleIntensityMapMessage(const nav_msgs::msg::OccupancyGrid & msg);
   /*
    * @brief Creates lookup table of free cells in map
    */
@@ -151,6 +154,7 @@ protected:
   amcl_hyp_t * initial_pose_hyp_;
   std::recursive_mutex mutex_;
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::ConstSharedPtr map_sub_;
+  rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::ConstSharedPtr intensity_map_sub_;
 #if NEW_UNIFORM_SAMPLING
   static std::vector<std::pair<int, int>> free_space_indices;
 #endif
@@ -391,6 +395,12 @@ protected:
   double z_rand_;
   std::string scan_topic_{"scan"};
   std::string map_topic_{"map"};
+  std::string intensity_map_topic_{"intensity_map"};
+  bool use_intensity_{false};
+  double intensity_weight_{0.5};
+  double intensity_threshold_{20.0};
+  bool intensity_map_received_{false};
+  nav_msgs::msg::OccupancyGrid::SharedPtr latest_intensity_map_;
 };
 
 }  // namespace nav2_amcl

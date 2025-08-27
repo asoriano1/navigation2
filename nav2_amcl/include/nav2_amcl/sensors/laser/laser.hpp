@@ -62,6 +62,14 @@ public:
    */
   void SetLaserPose(pf_vector_t & laser_pose);
 
+  /*
+   * @brief Set intensity related parameters
+   * @param use_intensity whether to use intensity information
+   * @param intensity_weight weighting factor for intensity match
+   * @param intensity_threshold threshold for intensity difference
+   */
+  void setIntensityParams(bool use_intensity, double intensity_weight, double intensity_threshold);
+
 protected:
   double z_hit_;
   double z_rand_;
@@ -79,6 +87,9 @@ protected:
   int max_samples_;
   int max_obs_;
   double ** temp_obs_;
+  bool use_intensity_;
+  double intensity_weight_;
+  double intensity_threshold_;
 };
 
 /*
@@ -93,16 +104,17 @@ public:
   /*
    * @brief LaserData constructor
    */
-  LaserData() {ranges = NULL;}
+  LaserData() {ranges = NULL; intensities = NULL;}
   /*
    * @brief LaserData destructor
    */
-  virtual ~LaserData() {delete[] ranges;}
+  virtual ~LaserData() {delete[] ranges; delete[] intensities;}
 
 public:
   int range_count;
   double range_max;
   double(*ranges)[2];
+  double * intensities;
 };
 
 /*

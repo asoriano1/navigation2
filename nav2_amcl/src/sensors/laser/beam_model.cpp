@@ -102,7 +102,22 @@ BeamModel::sensorFunction(LaserData * data, pf_sample_set_t * set)
 
       // Part 4: Random measurements
       if (obs_range < data->range_max) {
-        pz += self->z_rand_ * 1.0 / data->range_max;
+      pz += self->z_rand_ * 1.0 / data->range_max;
+
+      if (self->use_intensity_ && data->intensities) {
+        int mi, mj;
+        mi = MAP_GXWX(self->map_, pose.v[0] + obs_range * cos(pose.v[2] + obs_bearing));
+        mj = MAP_GYWY(self->map_, pose.v[1] + obs_range * sin(pose.v[2] + obs_bearing));
+        if (MAP_VALID(self->map_, mi, mj)) {
+          double diff = fabs(data->intensities[i] -
+            self->map_->cells[MAP_INDEX(self->map_, mi, mj)].intensity);
+          double factor = diff <= self->intensity_threshold_ ?
+            (1.0 + self->intensity_weight_) : (1.0 - self->intensity_weight_);
+          if (factor < 0.0) {
+            factor = 0.0;
+          }
+          pz *= factor;
+        }
       }
 
       // TODO(?): outlier rejection for short readings

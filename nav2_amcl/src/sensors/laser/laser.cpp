@@ -34,6 +34,9 @@ Laser::Laser(size_t max_beams, map_t * map)
 {
   max_beams_ = max_beams;
   map_ = map;
+  use_intensity_ = false;
+  intensity_weight_ = 0.0;
+  intensity_threshold_ = 0.0;
 }
 
 Laser::~Laser()
@@ -68,6 +71,14 @@ void
 Laser::SetLaserPose(pf_vector_t & laser_pose)
 {
   laser_pose_ = laser_pose;
+}
+
+void
+Laser::setIntensityParams(bool use_intensity, double intensity_weight, double intensity_threshold)
+{
+  use_intensity_ = use_intensity;
+  intensity_weight_ = intensity_weight;
+  intensity_threshold_ = intensity_threshold;
 }
 
 }  // namespace nav2_amcl

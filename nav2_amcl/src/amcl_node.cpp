@@ -23,6 +23,7 @@
 #include "nav2_amcl/amcl_node.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
@@ -225,6 +226,13 @@ AmclNode::AmclNode(const rclcpp::NodeOptions & options)
     "Topic to subscribe to in order to receive the map to localize on");
 
   add_parameter(
+    "intensity_map_topic", rclcpp::ParameterValue(std::string("intensity_map")),
+    "Topic to subscribe to for intensity map aligned with occupancy map");
+  add_parameter("use_intensity", rclcpp::ParameterValue(false));
+  add_parameter("intensity_weight", rclcpp::ParameterValue(0.5));
+  add_parameter("intensity_threshold", rclcpp::ParameterValue(20.0));
+
+  add_parameter(
     "first_map_only", rclcpp::ParameterValue(false),
     "Set this to true, when you want to load a new map published from the map_server");
 }
@@ -337,6 +345,9 @@ AmclNode::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
 
   // Map
   map_sub_.reset();  //  map_sub_ may access map_, so it should be reset earlier
+  intensity_map_sub_.reset();
+  intensity_map_received_ = false;
+  latest_intensity_map_.reset();
   if (map_ != NULL) {
     map_free(map_);
     map_ = nullptr;
@@ -737,6 +748,8 @@ bool AmclNode::addNewScanner(
   geometry_msgs::msg::PoseStamped & laser_pose)
 {
   lasers_.push_back(createLaserObject());
+  lasers_.back()->setIntensityParams(
+    use_intensity_ && intensity_map_received_, intensity_weight_, intensity_threshold_);
   lasers_update_.push_back(true);
   laser_index = frame_to_laser_.size();
 
@@ -833,6 +846,11 @@ bool AmclNode::updateFilter(
 
   // The LaserData destructor will free this memory
   ldata.ranges = new double[ldata.range_count][2];
+  if (!laser_scan->intensities.empty()) {
+    ldata.intensities = new double[ldata.range_count];
+  } else {
+    ldata.intensities = nullptr;
+  }
   for (int i = 0; i < ldata.range_count; i++) {
     // amcl doesn't (yet) have a concept of min range.  So we'll map short
     // readings to max range.
@@ -844,6 +862,13 @@ bool AmclNode::updateFilter(
     // Compute bearing
     ldata.ranges[i][1] = angle_min +
       (i * angle_increment);
+    if (ldata.intensities) {
+      if (static_cast<size_t>(i) < laser_scan->intensities.size()) {
+        ldata.intensities[i] = laser_scan->intensities[i];
+      } else {
+        ldata.intensities[i] = 0.0;
+      }
+    }
   }
   lasers_[laser_index]->sensorUpdate(pf_, reinterpret_cast<nav2_amcl::LaserData *>(&ldata));
   lasers_update_[laser_index] = false;
@@ -1090,6 +1115,10 @@ AmclNode::initParameters()
   get_parameter("always_reset_initial_pose", always_reset_initial_pose_);
   get_parameter("scan_topic", scan_topic_);
   get_parameter("map_topic", map_topic_);
+  get_parameter("intensity_map_topic", intensity_map_topic_);
+  get_parameter("use_intensity", use_intensity_);
+  get_parameter("intensity_weight", intensity_weight_);
+  get_parameter("intensity_threshold", intensity_threshold_);
 
   save_pose_period_ = tf2::durationFromSec(1.0 / save_pose_rate);
   transform_tolerance_ = tf2::durationFromSec(tmp_tol);
@@ -1160,6 +1189,8 @@ AmclNode::dynamicParametersCallback(
   bool reinit_odom = false;
   bool reinit_laser = false;
   bool reinit_map = false;
+  bool reinit_intensity = false;
+  bool update_laser_intensity = false;
 
   for (auto parameter : parameters) {
     const auto & param_type = parameter.get_type();
@@ -1275,6 +1306,12 @@ AmclNode::dynamicParametersCallback(
       } else if (param_name == "z_short") {
         z_short_ = parameter.as_double();
         reinit_laser = true;
+      } else if (param_name == "intensity_weight") {
+        intensity_weight_ = parameter.as_double();
+        update_laser_intensity = true;
+      } else if (param_name == "intensity_threshold") {
+        intensity_threshold_ = parameter.as_double();
+        update_laser_intensity = true;
       }
     } else if (param_type == ParameterType::PARAMETER_STRING) {
       if (param_name == "base_frame_id") {
@@ -1284,6 +1321,9 @@ AmclNode::dynamicParametersCallback(
       } else if (param_name == "map_topic") {
         map_topic_ = parameter.as_string();
         reinit_map = true;
+      } else if (param_name == "intensity_map_topic") {
+        intensity_map_topic_ = parameter.as_string();
+        reinit_intensity = true;
       } else if (param_name == "laser_model_type") {
         sensor_model_type_ = parameter.as_string();
         reinit_laser = true;
@@ -1307,6 +1347,10 @@ AmclNode::dynamicParametersCallback(
         set_initial_pose_ = parameter.as_bool();
       } else if (param_name == "first_map_only") {
         first_map_only_ = parameter.as_bool();
+      } else if (param_name == "use_intensity") {
+        use_intensity_ = parameter.as_bool();
+        reinit_intensity = true;
+        update_laser_intensity = true;
       }
     } else if (param_type == ParameterType::PARAMETER_INTEGER) {
       if (param_name == "max_beams") {
@@ -1372,6 +1416,22 @@ AmclNode::dynamicParametersCallback(
       std::bind(&AmclNode::mapReceived, this, std::placeholders::_1));
   }
 
+  if (reinit_intensity) {
+    intensity_map_sub_.reset();
+    if (use_intensity_) {
+      intensity_map_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
+        intensity_map_topic_, rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
+        std::bind(&AmclNode::intensityMapReceived, this, std::placeholders::_1));
+    }
+  }
+
+  if (reinit_intensity || update_laser_intensity) {
+    for (auto & laser : lasers_) {
+      laser->setIntensityParams(
+        use_intensity_ && intensity_map_received_, intensity_weight_, intensity_threshold_);
+    }
+  }
+
   result.successful = true;
   return result;
 }
@@ -1389,6 +1449,42 @@ AmclNode::mapReceived(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
   }
   handleMapMessage(*msg);
   first_map_received_ = true;
+}
+
+void
+AmclNode::intensityMapReceived(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
+{
+  RCLCPP_DEBUG(get_logger(), "AmclNode: A new intensity map was received.");
+  latest_intensity_map_ = msg;
+  if (!use_intensity_) {
+    return;
+  }
+  if (map_) {
+    handleIntensityMapMessage(*msg);
+    for (auto & laser : lasers_) {
+      laser->setIntensityParams(
+        use_intensity_ && intensity_map_received_, intensity_weight_, intensity_threshold_);
+    }
+  }
+}
+
+void
+AmclNode::handleIntensityMapMessage(const nav_msgs::msg::OccupancyGrid & msg)
+{
+  if (!map_) {
+    return;
+  }
+  if (msg.info.width != static_cast<unsigned int>(map_->size_x) ||
+    msg.info.height != static_cast<unsigned int>(map_->size_y) ||
+    msg.info.resolution != map_->scale)
+  {
+    RCLCPP_ERROR(get_logger(), "Intensity map dimensions do not match occupancy map");
+    return;
+  }
+  for (int i = 0; i < map_->size_x * map_->size_y; i++) {
+    map_->cells[i].intensity = static_cast<uint8_t>(msg.data[i]);
+  }
+  intensity_map_received_ = true;
 }
 
 void
@@ -1414,6 +1510,15 @@ AmclNode::handleMapMessage(const nav_msgs::msg::OccupancyGrid & msg)
 #if NEW_UNIFORM_SAMPLING
   createFreeSpaceVector();
 #endif
+
+  if (latest_intensity_map_) {
+    handleIntensityMapMessage(*latest_intensity_map_);
+  }
+  if (use_intensity_ && intensity_map_received_) {
+    for (auto & laser : lasers_) {
+      laser->setIntensityParams(true, intensity_weight_, intensity_threshold_);
+    }
+  }
 }
 
 void
@@ -1437,6 +1542,7 @@ AmclNode::freeMapDependentMemory()
     map_free(map_);
     map_ = NULL;
   }
+  intensity_map_received_ = false;
 
   // Clear queued laser objects because they hold pointers to the existing
   // map, #5202.
@@ -1470,6 +1576,7 @@ AmclNode::convertMap(const nav_msgs::msg::OccupancyGrid & map_msg)
     } else {
       map->cells[i].occ_state = 0;
     }
+    map->cells[i].intensity = 0;
   }
 
   return map;
@@ -1539,6 +1646,13 @@ AmclNode::initPubSub()
     std::bind(&AmclNode::mapReceived, this, std::placeholders::_1));
 
   RCLCPP_INFO(get_logger(), "Subscribed to map topic.");
+
+  if (use_intensity_) {
+    intensity_map_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
+      intensity_map_topic_, rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable(),
+      std::bind(&AmclNode::intensityMapReceived, this, std::placeholders::_1));
+    RCLCPP_INFO(get_logger(), "Subscribed to intensity map topic.");
+  }
 }
 
 void
