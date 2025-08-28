@@ -1506,7 +1506,11 @@ AmclNode::handleMapMessage(const nav_msgs::msg::OccupancyGrid & msg)
       global_frame_id_.c_str());
   }
   freeMapDependentMemory();
-  map_ = convertMap(msg);
+  map_t * new_map = convertMap(msg);
+  if (!new_map) {
+    return;
+  }
+  map_ = new_map;
 
 #if NEW_UNIFORM_SAMPLING
   createFreeSpaceVector();
@@ -1567,6 +1571,15 @@ AmclNode::convertMap(const nav_msgs::msg::OccupancyGrid & map_msg)
 
   map->cells =
     reinterpret_cast<map_cell_t *>(malloc(sizeof(map_cell_t) * map->size_x * map->size_y));
+
+  if (map_msg.data.size() != static_cast<size_t>(map->size_x * map->size_y)) {
+    RCLCPP_ERROR(
+      get_logger(),
+      "Map data size (%zu) does not match width * height (%u)",
+      map_msg.data.size(), map->size_x * map->size_y);
+    map_free(map);
+    return nullptr;
+  }
 
   // Convert to player format
   for (int i = 0; i < map->size_x * map->size_y; i++) {
