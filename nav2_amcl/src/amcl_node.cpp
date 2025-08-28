@@ -1471,6 +1471,7 @@ AmclNode::intensityMapReceived(const nav_msgs::msg::OccupancyGrid::SharedPtr msg
 void
 AmclNode::handleIntensityMapMessage(const nav_msgs::msg::OccupancyGrid & msg)
 {
+  std::lock_guard<std::recursive_mutex> cfl(mutex_);
   if (!map_) {
     return;
   }
