@@ -175,14 +175,16 @@ LikelihoodFieldModelProb::sensorFunction(LaserData * data, pf_sample_set_t * set
       pz += self->z_rand_ * z_rand_mult;
 
       if (self->use_intensity_ && data->intensities) {
-        double diff = fabs(data->intensities[i] -
-          self->map_->cells[MAP_INDEX(self->map_, mi, mj)].intensity);
-        double factor = diff <= self->intensity_threshold_ ?
-          (1.0 + self->intensity_weight_) : (1.0 - self->intensity_weight_);
-        if (factor < 0.0) {
-          factor = 0.0;
+        if (MAP_VALID(self->map_, mi, mj)) {
+          double diff = fabs(data->intensities[i] -
+            self->map_->cells[MAP_INDEX(self->map_, mi, mj)].intensity);
+          double factor = diff <= self->intensity_threshold_ ?
+            (1.0 + self->intensity_weight_) : (1.0 - self->intensity_weight_);
+          if (factor < 0.0) {
+            factor = 0.0;
+          }
+          pz *= factor;
         }
-        pz *= factor;
       }
 
       assert(pz <= 1.0);
