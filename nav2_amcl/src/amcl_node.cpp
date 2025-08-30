@@ -231,6 +231,8 @@ AmclNode::AmclNode(const rclcpp::NodeOptions & options)
   add_parameter("use_intensity", rclcpp::ParameterValue(false));
   add_parameter("intensity_weight", rclcpp::ParameterValue(0.5));
   add_parameter("intensity_threshold", rclcpp::ParameterValue(20.0));
+  add_parameter("intensity_mode", rclcpp::ParameterValue(std::string("step")),
+    "mode of intensity integration");
 
   add_parameter(
     "first_map_only", rclcpp::ParameterValue(false),
@@ -749,7 +751,7 @@ bool AmclNode::addNewScanner(
 {
   lasers_.push_back(createLaserObject());
   lasers_.back()->setIntensityParams(
-    use_intensity_ && intensity_map_received_, intensity_weight_, intensity_threshold_);
+    use_intensity_ && intensity_map_received_, intensity_weight_, intensity_threshold_, intensity_mode_);
   lasers_update_.push_back(true);
   laser_index = frame_to_laser_.size();
 
@@ -1119,6 +1121,7 @@ AmclNode::initParameters()
   get_parameter("use_intensity", use_intensity_);
   get_parameter("intensity_weight", intensity_weight_);
   get_parameter("intensity_threshold", intensity_threshold_);
+  get_parameter("intensity_mode", intensity_mode_);
 
   save_pose_period_ = tf2::durationFromSec(1.0 / save_pose_rate);
   transform_tolerance_ = tf2::durationFromSec(tmp_tol);
@@ -1167,6 +1170,32 @@ AmclNode::initParameters()
   if (always_reset_initial_pose_) {
     initial_pose_is_known_ = false;
   }
+
+  static const std::unordered_set<std::string> kModes = {"step","gaussian","linear"};
+
+  if (!kModes.count(intensity_mode_)) {
+  RCLCPP_WARN(
+    rclcpp::get_logger("amcl_intensity"),
+    "intensity_mode='%s' not valid. Using 'gaussian' by default.",
+    intensity_mode_.c_str());
+    intensity_mode_ = "gaussian";
+  }
+
+  // Mensaje resumen de configuración de intensidades
+  if (use_intensity_) {
+    RCLCPP_INFO(
+      rclcpp::get_logger("amcl_intensity"),
+      "Intensity ACTIVE. Mode='%s', weight=%.2f, threshold=%.2f, clamp=[%.2f, %.2f]",
+      intensity_mode_.c_str(),
+      intensity_weight_, intensity_threshold_,
+      //intensity_factor_min_, intensity_factor_max_);
+      0.5,1.5);
+  } else {
+    RCLCPP_INFO(
+      rclcpp::get_logger("amcl_intensity"),
+      "Intensidad DESACTIVATED (use_intensity_map=false).");
+  }
+
 }
 
 /**
@@ -1336,6 +1365,9 @@ AmclNode::dynamicParametersCallback(
       } else if (param_name == "robot_model_type") {
         robot_model_type_ = parameter.as_string();
         reinit_odom = true;
+      } else if (param_name == "intensity_mode") {
+        intensity_mode_ = parameter.as_string();
+        reinit_intensity = true;
       }
     } else if (param_type == ParameterType::PARAMETER_BOOL) {
       if (param_name == "do_beamskip") {
@@ -1428,7 +1460,7 @@ AmclNode::dynamicParametersCallback(
   if (reinit_intensity || update_laser_intensity) {
     for (auto & laser : lasers_) {
       laser->setIntensityParams(
-        use_intensity_ && intensity_map_received_, intensity_weight_, intensity_threshold_);
+        use_intensity_ && intensity_map_received_, intensity_weight_, intensity_threshold_, intensity_mode_);
     }
   }
 
@@ -1463,7 +1495,7 @@ AmclNode::intensityMapReceived(const nav_msgs::msg::OccupancyGrid::SharedPtr msg
     handleIntensityMapMessage(*msg);
     for (auto & laser : lasers_) {
       laser->setIntensityParams(
-        use_intensity_ && intensity_map_received_, intensity_weight_, intensity_threshold_);
+        use_intensity_ && intensity_map_received_, intensity_weight_, intensity_threshold_, intensity_mode_);
     }
   }
 }
@@ -1521,7 +1553,7 @@ AmclNode::handleMapMessage(const nav_msgs::msg::OccupancyGrid & msg)
   }
   if (use_intensity_ && intensity_map_received_) {
     for (auto & laser : lasers_) {
-      laser->setIntensityParams(true, intensity_weight_, intensity_threshold_);
+      laser->setIntensityParams(true, intensity_weight_, intensity_threshold_, intensity_mode_);
     }
   }
 }

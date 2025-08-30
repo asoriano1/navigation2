@@ -399,6 +399,7 @@ protected:
   bool use_intensity_{false};
   double intensity_weight_{0.5};
   double intensity_threshold_{20.0};
+  std::string intensity_mode_{"gaussian"};
   bool intensity_map_received_{false};
   nav_msgs::msg::OccupancyGrid::SharedPtr latest_intensity_map_;
 };

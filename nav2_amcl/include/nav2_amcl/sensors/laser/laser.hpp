@@ -67,8 +67,9 @@ public:
    * @param use_intensity whether to use intensity information
    * @param intensity_weight weighting factor for intensity match
    * @param intensity_threshold threshold for intensity difference
+   * @param intensity_mode selection of intensity integration mode
    */
-  void setIntensityParams(bool use_intensity, double intensity_weight, double intensity_threshold);
+  void setIntensityParams(bool use_intensity, double intensity_weight, double intensity_threshold, std::string intensity_mode);
 
 protected:
   double z_hit_;
@@ -90,6 +91,7 @@ protected:
   bool use_intensity_;
   double intensity_weight_;
   double intensity_threshold_;
+  std::string intensity_mode_;
 };
 
 /*
