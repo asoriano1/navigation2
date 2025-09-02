@@ -1185,11 +1185,9 @@ AmclNode::initParameters()
   if (use_intensity_) {
     RCLCPP_INFO(
       rclcpp::get_logger("amcl_intensity"),
-      "Intensity ACTIVE. Mode='%s', weight=%.2f, threshold=%.2f, clamp=[%.2f, %.2f]",
+      "Intensity ACTIVE. Mode='%s', weight=%.2f, threshold=%.2f",
       intensity_mode_.c_str(),
-      intensity_weight_, intensity_threshold_,
-      //intensity_factor_min_, intensity_factor_max_);
-      0.5,1.5);
+      intensity_weight_, intensity_threshold_);
   } else {
     RCLCPP_INFO(
       rclcpp::get_logger("amcl_intensity"),

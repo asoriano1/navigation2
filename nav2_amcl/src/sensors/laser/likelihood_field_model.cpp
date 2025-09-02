@@ -57,6 +57,8 @@ LikelihoodFieldModel::sensorFunction(LaserData * data, pf_sample_set_t * set)
   // Pre-compute a couple of things
   double z_hit_denom = 2 * self->sigma_hit_ * self->sigma_hit_;
   double z_rand_mult = 1.0 / data->range_max;
+  const double i_threshold = std::max(1e-6, self->intensity_threshold_);
+  const double inv_2threshold2 = 1.0 / (2.0 * i_threshold * i_threshold);
 
   step = (data->range_count - 1) / (self->max_beams_ - 1);
 
@@ -114,57 +116,48 @@ LikelihoodFieldModel::sensorFunction(LaserData * data, pf_sample_set_t * set)
       pz += self->z_hit_ * exp(-(z * z) / z_hit_denom);
       // Part 2: random measurements
       pz += self->z_rand_ * z_rand_mult;
-      
-      /*if (self->use_intensity_ && data->intensities) {
-        if (MAP_VALID(self->map_, mi, mj)) {
-          double diff = fabs(data->intensities[i] -
-            self->map_->cells[MAP_INDEX(self->map_, mi, mj)].intensity);
-          double factor = diff <= self->intensity_threshold_ ?
-            (1.0 + self->intensity_weight_) : (1.0 - self->intensity_weight_);
-          if (factor < 0.0) {
-            factor = 0.0;
-          }
-          pz *= factor;
-        }
-      }*/
+
       if (self->use_intensity_ && data->intensities) {
         if (MAP_VALID(self->map_, mi, mj)) {
           const double map_int  = self->map_->cells[MAP_INDEX(self->map_, mi, mj)].intensity;
           const double meas_int = data->intensities[i];
           const double diff     = std::fabs(meas_int - map_int);
 
-          double factor = 1.0;
-          const double w = self->intensity_weight_;
-          const double t = std::max(1e-6, self->intensity_threshold_);
-
-          if (self->intensity_mode_ == "step") {
-            // Escalón por umbral: [1-w, 1+w]
-            factor = (diff <= t) ? (1.0 + w) : (1.0 - w);
-
-          } else if (self->intensity_mode_ == "gaussian") {
-            // Versión suave exponencial SIN sigma explícito.
-            // Usamos el threshold como escala (cuanto mayor t, más suave).
-            // factor = 1 + w * exp( - diff^2 / (2 * t^2) )
-            const double e = std::exp(-(diff * diff) / (2.0 * t * t));
-            factor = 1.0 + w * e;
-
-          } else if (self->intensity_mode_ == "linear") {
-            // Lineal acotada: frac = 1 en diff=0, baja lineal hasta 0 en diff>=t
-            // factor en [1-w, 1+w]
-            const double frac = std::clamp(1.0 - diff / t, 0.0, 1.0);
-            factor = 1.0 + w * (2.0 * frac - 1.0);
-
-          } else {
-            // Modo desconocido: no aplicar nada (o loguear si quieres).
-            // factor = 1.0;
+          if (std::isnan(meas_int) || std::isnan(map_int)) {
+            // Skip intensity fusion for this beam
+            continue;
           }
 
-          // Seguridad: acotar (evita negativos o exageraciones)
-          //TODO PARAMETRIZE
-          //factor = std::clamp(factor, self->intensity_factor_min_, self->intensity_factor_max_);
-          factor = std::clamp(factor, 0.5, 1.5);
+          // 1) Build a similarity s ∈ [0,1] from intensity difference
+          //    - "step": 1 if diff <= i_threshold, else 0
+          //    - "gaussian": smooth exp falloff usingi_threshold as scale
+          //    - "linear": linear falloff to 0 at diff >= i_threshold
 
-          pz *= factor;
+          double s = 1.0;  // similarity in [0,1]
+
+          if (self->intensity_mode_ == "step") {
+            s = (diff <= i_threshold) ? 1.0 : 0.0;
+          } else if (self->intensity_mode_ == "gaussian") {
+            // smooth falloff without explicit sigma: use i_threshold as scale
+            s = std::exp(-(diff * diff) * inv_2threshold2);
+          } else if (self->intensity_mode_ == "linear") {
+            s = std::clamp(1.0 - diff / i_threshold, 0.0, 1.0);
+          } else {
+            // Unknown mode: keep s = 1.0 (no intensity effect)
+          }
+
+          // 2) Intensity likelihood pz_int in [0,1]
+          const double pz_int = std::clamp(s, 0.0, 1.0);
+
+          // 3) Convex mixing of geometric and intensity likelihoods
+          //    pz_mix = (1 - beta) * pz_geom + beta * pz_int
+          const double beta = std::clamp(self->intensity_weight_, 0.0, 1.0);
+          const double pz_geom = std::clamp(pz, 0.0, 1.0);  // current geometric term
+          double pz_mix = (1.0 - beta) * pz_geom + beta * pz_int;
+
+          // 4) Safety clamp to keep probability in [0,1]
+          pz = std::clamp(pz_mix, 0.0, 1.0);
+          
         }
       }
 
